@@ -84,31 +84,45 @@ namespace AUFS
                     }
 
 
-                    // Define destination blob path (virtual folder in the same storage account)
-                    var destinationBlobName = $"exportcontainer-success/{Path.GetFileName(blobClient.Name)}";
-                    var destinationBlobClient = containerClient.GetBlobClient(destinationBlobName);
+                    // Read destination container name from environment variable
+                    var destinationContainerName = Environment.GetEnvironmentVariable("DESTINATION_CONTAINER_NAME");
+                    if (string.IsNullOrWhiteSpace(destinationContainerName))
+                    {
+                        throw new Exception("Environment variable DESTINATION_CONTAINER_NAME is not set.");
+                    }
 
-                    // Copy blob to new "folder"
+                    // Create client for destination container
+                    var destinationContainerClient = new BlobContainerClient(
+                        storageConnectionString,
+                        destinationContainerName
+                    );
+
+                    // Get blob name only (no virtual folders unless you want them preserved)
+                    var destinationBlobName = Path.GetFileName(blobClient.Name);
+                    var destinationBlobClient = destinationContainerClient.GetBlobClient(destinationBlobName);
+
+                    // Copy blob to destination container
                     await destinationBlobClient.StartCopyFromUriAsync(blobClient.Uri);
 
-                    // Wait until the copy finishes
+                    // Wait until copy completes
                     BlobProperties destProps;
                     do
                     {
-                        await Task.Delay(500); // Half-second pause between checks
+                        await Task.Delay(500); // 0.5 second between checks
                         destProps = await destinationBlobClient.GetPropertiesAsync();
-                    } 
+                    }
                     while (destProps.CopyStatus == CopyStatus.Pending);
 
-                    // Delete original after successful copy
+                    // Delete original if copy succeeded
                     if (destProps.CopyStatus == CopyStatus.Success)
                     {
                         await blobClient.DeleteIfExistsAsync();
                     }
                     else
                     {
-                        throw new Exception($"Failed to copy blob '{blobClient.Name}' to '{destinationBlobName}'. Copy status: {destProps.CopyStatus}");
+                        throw new Exception($"Failed to copy blob '{blobClient.Name}' to '{destinationContainerName}'. Copy status: {destProps.CopyStatus}");
                     }
+
                 }
                 catch (Exception ex)
                 {
